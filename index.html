@@ -403,7 +403,7 @@
   </div>
 
   <div class="notas">
-    <p><b>Cómo se actualiza esta página:</b> los datos se leen en vivo desde una planilla de Google Sheets a través de un backend en Google Apps Script. Podés cargar un monitoreo nuevo con el botón "+ Agregar monitoreo" (queda escrito directo en la planilla), o editar la planilla misma desde Google Sheets; en ambos casos, con "↻ Actualizar" lo ves reflejado acá.</p>
+    <p><b>Cómo se actualiza esta página:</b> los datos ya no viven en el repositorio — se leen en vivo desde una planilla de Google Sheets a través de un backend en Google Apps Script. Podés cargar un monitoreo nuevo con el botón "+ Agregar monitoreo" (queda escrito directo en la planilla), o editar la planilla misma desde Google Sheets; en ambos casos, con "↻ Actualizar" lo ves reflejado acá.</p>
   </div>
 </main>
 
@@ -537,6 +537,8 @@
     });
   }
 
+  const TODOS_KEY = "Todos";
+
   function pintarTabsAnios(){
     const cont = document.getElementById("tabsAnios");
     cont.innerHTML = "";
@@ -547,12 +549,25 @@
       b.addEventListener("click", ()=>{ anioActivo = a; render(); });
       cont.appendChild(b);
     });
+    if(anios.length){
+      const b = document.createElement("button");
+      b.textContent = "Todos los planes";
+      b.className = anioActivo === TODOS_KEY ? "activo" : "";
+      b.addEventListener("click", ()=>{ anioActivo = TODOS_KEY; render(); });
+      cont.appendChild(b);
+    }
+  }
+
+  function columnasActivas(){
+    return anioActivo === TODOS_KEY
+      ? [{ key:"Año", label:"Año" }, ...COLUMNAS]
+      : COLUMNAS;
   }
 
   function pintarEncabezado(){
     const tr = document.getElementById("filaEncabezado");
     tr.innerHTML = "";
-    COLUMNAS.forEach(c=>{
+    columnasActivas().forEach(c=>{
       const th = document.createElement("th");
       th.textContent = c.label;
       tr.appendChild(th);
@@ -569,6 +584,7 @@
   function celda(col, row){
     const raw = row[col.key];
     const val = norm(raw);
+    if(col.key === "Año") return `<td class="centro">${val || "—"}</td>`;
     if(col.key === "Provincia") return `<td class="provincia">${normProvincia(raw) || "—"}</td>`;
     if(col.key === "Trimestre" || col.key === "URE N°") return `<td class="centro">${val || "—"}</td>`;
     if(col.key === "Alcanzado por SAT?") return `<td class="centro">${badgeSat(raw)}</td>`;
@@ -578,6 +594,9 @@
   }
 
   function datosDelAnio(){
+    if(anioActivo === TODOS_KEY){
+      return anios.flatMap(a => MONITOREO_DATA[a] || []);
+    }
     return MONITOREO_DATA[anioActivo] || [];
   }
 
@@ -622,11 +641,12 @@
 
   function pintarTabla(datos){
     const tbody = document.getElementById("cuerpoTabla");
+    const cols = columnasActivas();
     tbody.innerHTML = "";
     if(datos.length === 0){
       const tr = document.createElement("tr");
       const td = document.createElement("td");
-      td.colSpan = COLUMNAS.length;
+      td.colSpan = cols.length;
       td.className = "vacio";
       td.textContent = "No hay registros que coincidan con los filtros aplicados.";
       tr.appendChild(td);
@@ -638,7 +658,7 @@
       .sort((a,b)=> norm(a["Fecha de monitoreo en campo"]).localeCompare(norm(b["Fecha de monitoreo en campo"])))
       .forEach(row=>{
         const tr = document.createElement("tr");
-        COLUMNAS.forEach(c=>{ tr.innerHTML += celda(c, row); });
+        cols.forEach(c=>{ tr.innerHTML += celda(c, row); });
         tbody.appendChild(tr);
       });
   }
@@ -648,11 +668,12 @@
     const conSat = datosAnio.filter(r=>normSat(r["Alcanzado por SAT?"]) === "Sí").length;
 
     const pct = (n)=> total ? Math.round((n/total)*100) : 0;
+    const etiquetaPeriodo = anioActivo === TODOS_KEY ? "en total" : `en ${anioActivo}`;
 
     document.getElementById("resumen").innerHTML = `
       <div class="celda">
         <div class="num">${total}</div>
-        <div class="etiqueta">Planes monitoreados en ${anioActivo}</div>
+        <div class="etiqueta">Planes monitoreados ${etiquetaPeriodo}</div>
       </div>
       <div class="celda">
         <div class="num">${pct(conSat)}<small>%</small></div>
@@ -675,8 +696,9 @@
     const datosAnio = datosDelAnio();
     pintarResumen(datosAnio);
     const filtrados = aplicarFiltros(datosAnio);
+    const etiquetaPeriodo = anioActivo === TODOS_KEY ? "en total" : `de ${anioActivo}`;
     document.getElementById("conteoFiltro").textContent = anioActivo
-      ? `Mostrando ${filtrados.length} de ${datosAnio.length} registros de ${anioActivo}.`
+      ? `Mostrando ${filtrados.length} de ${datosAnio.length} registros ${etiquetaPeriodo}.`
       : "";
     pintarTabla(filtrados);
   }
