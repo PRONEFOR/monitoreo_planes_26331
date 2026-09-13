@@ -131,6 +131,44 @@
   }
 
   /* ---------- Tabs (years) ---------- */
+  /* ---------- Panorama / gráfico ---------- */
+  .panorama{
+    margin-top:2rem;
+  }
+  .panorama h2{
+    font-size:1.05rem;
+    font-weight:500;
+    color:var(--verde-monte);
+    margin-bottom:.9rem;
+  }
+  .grafico-wrap{
+    overflow-x:auto;
+    border:1px solid var(--linea);
+    background:var(--blanco);
+    padding:1rem .5rem .5rem;
+  }
+  .grafico-vacio{
+    padding:1.6rem 1rem;
+    color:var(--tinta-suave);
+    font-size:.86rem;
+  }
+  .grafico-leyenda{
+    display:flex;
+    flex-wrap:wrap;
+    gap:.9rem;
+    padding:0 .5rem .8rem;
+    font-size:.8rem;
+    color:var(--tinta-suave);
+  }
+  .grafico-leyenda span.punto{
+    display:inline-block;
+    width:.65rem;
+    height:.65rem;
+    border-radius:1px;
+    margin-right:.35rem;
+    vertical-align:middle;
+  }
+
   .anios{
     display:flex;
     gap:.4rem;
@@ -378,6 +416,14 @@
 <main>
   <section class="resumen" id="resumen"></section>
 
+  <section class="panorama">
+    <h2>Panorama general — planes monitoreados por provincia y año</h2>
+    <div class="grafico-wrap" id="graficoWrap">
+      <div id="graficoProvincias"></div>
+      <div class="grafico-leyenda" id="graficoLeyenda"></div>
+    </div>
+  </section>
+
   <div class="anios" id="tabsAnios"></div>
 
   <div class="filtros">
@@ -448,14 +494,14 @@
             <option value="NO">No</option>
           </select>
         </label>
+        <label>Extensionistas ANA
+          <input type="text" id="campo_Extensionistas">
+        </label>
         <label>Acompañantes en campo
           <input type="text" id="campo_Tecnicos">
         </label>
         <label>IF
           <input type="text" id="campo_IF">
-        </label>
-        <label>Extensionistas ANA
-          <input type="text" id="campo_Extensionistas">
         </label>
         <label class="ancho-completo">Observaciones relevantes para una devolución al ALA
           <textarea id="campo_Observaciones" rows="2"></textarea>
@@ -487,10 +533,10 @@
     { key:"ID POA", label:"ID POA" },
     { key:"Fecha de monitoreo en campo", label:"Fecha monitoreo" },
     { key:"Alcanzado por SAT?", label:"SAT" },
-    { key:"Tecnico/s que fueron al campo", label:"Acompañantes en campo" },
+    { key:"Extensionistas ANA", label:"Extensionistas ANA" },
+    { key:"Acompañantes en campo", label:"Acompañantes en campo" },
     { key:"IF", label:"IF" },
-    { key:"Observaciones relevantes para una devolución al ALA", label:"Observaciones" },
-    { key:"Extensionistas", label:"Extensionistas ANA" }
+    { key:"Observaciones relevantes para una devolución al ALA", label:"Observaciones" }
   ];
 
   let MONITOREO_DATA = {};
@@ -630,7 +676,7 @@
       if(sat && normSat(r["Alcanzado por SAT?"]) !== sat) return false;
       if(texto){
         const bolsa = [
-          r["ID PLAN"], r["ID POA"], r["Tecnico/s que fueron al campo"],
+          r["ID PLAN"], r["ID POA"], r["Acompañantes en campo"],
           r["IF"], r["Provincia"], r["Observaciones relevantes para una devolución al ALA"]
         ].map(norm).join(" ").toLowerCase();
         if(!bolsa.includes(texto)) return false;
@@ -689,10 +735,89 @@
       : "Sin datos por el momento.";
   }
 
+  // --- Gráfico: planes monitoreados por provincia y año (histórico completo) ---
+  const PALETA_ANIOS = ["#8A5A34", "#2F4F3A", "#B9812E", "#5B6F82", "#A6432F", "#6E6350"];
+
+  function pintarGrafico(){
+    const cont = document.getElementById("graficoProvincias");
+    const leyendaEl = document.getElementById("graficoLeyenda");
+    const todos = anios.flatMap(a => MONITOREO_DATA[a] || []);
+
+    if(!todos.length){
+      cont.innerHTML = '<div class="grafico-vacio">Todavía no hay datos para graficar.</div>';
+      leyendaEl.innerHTML = "";
+      return;
+    }
+
+    const porProvincia = {};
+    todos.forEach(r=>{
+      const p = normProvincia(r["Provincia"]) || "Sin provincia";
+      const a = String(r["Año"] ?? "").trim() || "Sin año";
+      if(!porProvincia[p]) porProvincia[p] = {};
+      porProvincia[p][a] = (porProvincia[p][a] || 0) + 1;
+    });
+
+    const totalDe = p => Object.values(porProvincia[p]).reduce((s,v)=>s+v, 0);
+    const provincias = Object.keys(porProvincia).sort((a,b)=> totalDe(b) - totalDe(a));
+    const aniosOrdenados = anios.slice();
+    const colorAnio = {};
+    aniosOrdenados.forEach((a,i)=> colorAnio[a] = PALETA_ANIOS[i % PALETA_ANIOS.length]);
+
+    const maxCount = Math.max(1, ...provincias.map(p =>
+      Math.max(...aniosOrdenados.map(a => porProvincia[p][a] || 0))
+    ));
+
+    const barW = 14, gapBarras = 3, gapGrupo = 26;
+    const margenIzq = 42, margenSup = 14, altoGrafico = 200, margenInf = 78;
+    const anchoGrupo = aniosOrdenados.length * barW + (aniosOrdenados.length - 1) * gapBarras;
+    const anchoTotal = margenIzq + 12 + provincias.length * (anchoGrupo + gapGrupo);
+    const altoTotal = margenSup + altoGrafico + margenInf;
+    const escalaY = altoGrafico / maxCount;
+
+    let ticksSvg = "";
+    const numTicks = 4;
+    for(let i=0;i<=numTicks;i++){
+      const val = Math.round(maxCount * i / numTicks);
+      const y = margenSup + altoGrafico - val * escalaY;
+      ticksSvg += `<line x1="${margenIzq-6}" y1="${y}" x2="${anchoTotal}" y2="${y}" stroke="#E6E2D2" stroke-width="1"/>`;
+      ticksSvg += `<text x="${margenIzq-10}" y="${y+3.5}" font-size="10" fill="#514E44" text-anchor="end">${val}</text>`;
+    }
+
+    let barrasSvg = "", etiquetasSvg = "";
+    provincias.forEach((p,i)=>{
+      const xGrupo = margenIzq + i * (anchoGrupo + gapGrupo);
+      aniosOrdenados.forEach((a,j)=>{
+        const count = porProvincia[p][a] || 0;
+        const alto = count * escalaY;
+        const x = xGrupo + j * (barW + gapBarras);
+        const y = margenSup + altoGrafico - alto;
+        if(count > 0){
+          barrasSvg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${alto.toFixed(1)}" fill="${colorAnio[a]}"><title>${p} — ${a}: ${count} plan(es)</title></rect>`;
+        }
+      });
+      const xLabel = xGrupo + anchoGrupo / 2;
+      const yLabel = margenSup + altoGrafico + 14;
+      etiquetasSvg += `<text x="${xLabel.toFixed(1)}" y="${yLabel}" font-size="10.5" fill="#1C1A16" text-anchor="end" transform="rotate(-40 ${xLabel.toFixed(1)} ${yLabel})">${p}</text>`;
+    });
+
+    cont.innerHTML = `<svg viewBox="0 0 ${anchoTotal} ${altoTotal}" width="${anchoTotal}" height="${altoTotal}" xmlns="http://www.w3.org/2000/svg" style="font-family:'IBM Plex Sans',sans-serif; display:block;">
+      <line x1="${margenIzq}" y1="${margenSup}" x2="${margenIzq}" y2="${margenSup+altoGrafico}" stroke="#C9C3AC" stroke-width="1"/>
+      <line x1="${margenIzq}" y1="${margenSup+altoGrafico}" x2="${anchoTotal}" y2="${margenSup+altoGrafico}" stroke="#C9C3AC" stroke-width="1"/>
+      ${ticksSvg}
+      ${barrasSvg}
+      ${etiquetasSvg}
+    </svg>`;
+
+    leyendaEl.innerHTML = aniosOrdenados
+      .map(a => `<span><span class="punto" style="background:${colorAnio[a]}"></span>${a}</span>`)
+      .join("");
+  }
+
   function render(){
     pintarTabsAnios();
     pintarEncabezado();
     poblarFiltros();
+    pintarGrafico();
     const datosAnio = datosDelAnio();
     pintarResumen(datosAnio);
     const filtrados = aplicarFiltros(datosAnio);
@@ -789,10 +914,10 @@
       "ID POA": document.getElementById("campo_IDPOA").value.trim(),
       "Fecha de monitoreo en campo": document.getElementById("campo_Fecha").value.trim(),
       "Alcanzado por SAT?": document.getElementById("campo_SAT").value,
-      "Tecnico/s que fueron al campo": document.getElementById("campo_Tecnicos").value.trim(),
+      "Extensionistas ANA": document.getElementById("campo_Extensionistas").value.trim(),
+      "Acompañantes en campo": document.getElementById("campo_Tecnicos").value.trim(),
       "IF": document.getElementById("campo_IF").value.trim(),
-      "Observaciones relevantes para una devolución al ALA": document.getElementById("campo_Observaciones").value.trim(),
-      "Extensionistas": document.getElementById("campo_Extensionistas").value.trim()
+      "Observaciones relevantes para una devolución al ALA": document.getElementById("campo_Observaciones").value.trim()
     };
     const clave = document.getElementById("campo_Clave").value;
 
