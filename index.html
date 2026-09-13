@@ -352,6 +352,13 @@
     position:sticky;
     top:0;
   }
+  thead th.ordenable{
+    cursor:pointer;
+    user-select:none;
+  }
+  thead th.ordenable:hover{
+    background:#E2DCC5;
+  }
   tbody td{
     padding:.6rem .7rem;
     border-bottom:1px solid #EAE6D8;
@@ -417,7 +424,7 @@
   <section class="resumen" id="resumen"></section>
 
   <section class="panorama">
-    <h2>Panorama general — planes monitoreados por provincia y año</h2>
+    <h2 id="graficoTitulo">Panorama general — planes monitoreados por provincia y año</h2>
     <div class="grafico-wrap" id="graficoWrap">
       <div id="graficoProvincias"></div>
       <div class="grafico-leyenda" id="graficoLeyenda"></div>
@@ -449,7 +456,7 @@
   </div>
 
   <div class="notas">
-    <p><b>Cómo se actualiza esta página:</b> los datos se leen en vivo desde una planilla de Google Sheets a través de un backend en Google Apps Script. Podés cargar un monitoreo nuevo con el botón "+ Agregar monitoreo" (queda escrito directo en la planilla), o editar la planilla misma desde Google Sheets; en ambos casos, con "↻ Actualizar" lo ves reflejado acá.</p>
+    <p><b>Cómo se actualiza esta página:</b> los datos ya no viven en el repositorio — se leen en vivo desde una planilla de Google Sheets a través de un backend en Google Apps Script. Podés cargar un monitoreo nuevo con el botón "+ Agregar monitoreo" (queda escrito directo en la planilla), o editar la planilla misma desde Google Sheets; en ambos casos, con "↻ Actualizar" lo ves reflejado acá.</p>
   </div>
 </main>
 
@@ -610,12 +617,39 @@
       : COLUMNAS;
   }
 
+  let ordenColumna = null;
+  let ordenDireccion = 1; // 1 = ascendente, -1 = descendente
+
+  function compararValores(x, y){
+    const nx = norm(x), ny = norm(y);
+    if(nx === "" && ny === "") return 0;
+    if(nx === "") return 1;
+    if(ny === "") return -1;
+    const soloNumero = s => /^-?\d+([.,]\d+)?$/.test(s);
+    if(soloNumero(nx) && soloNumero(ny)){
+      return parseFloat(nx.replace(",", ".")) - parseFloat(ny.replace(",", "."));
+    }
+    return nx.localeCompare(ny, "es", { sensitivity:"base" });
+  }
+
   function pintarEncabezado(){
     const tr = document.getElementById("filaEncabezado");
     tr.innerHTML = "";
     columnasActivas().forEach(c=>{
       const th = document.createElement("th");
-      th.textContent = c.label;
+      th.className = "ordenable";
+      let flecha = "";
+      if(ordenColumna === c.key) flecha = ordenDireccion === 1 ? " ▲" : " ▼";
+      th.textContent = c.label + flecha;
+      th.addEventListener("click", ()=>{
+        if(ordenColumna === c.key){
+          ordenDireccion = -ordenDireccion;
+        } else {
+          ordenColumna = c.key;
+          ordenDireccion = 1;
+        }
+        render();
+      });
       tr.appendChild(th);
     });
   }
@@ -699,9 +733,10 @@
       tbody.appendChild(tr);
       return;
     }
+    const columnaOrden = ordenColumna || "Fecha de monitoreo en campo";
     datos
       .slice()
-      .sort((a,b)=> norm(a["Fecha de monitoreo en campo"]).localeCompare(norm(b["Fecha de monitoreo en campo"])))
+      .sort((a,b)=> compararValores(a[columnaOrden], b[columnaOrden]) * ordenDireccion)
       .forEach(row=>{
         const tr = document.createElement("tr");
         cols.forEach(c=>{ tr.innerHTML += celda(c, row); });
@@ -738,19 +773,25 @@
   // --- Gráfico: planes monitoreados por provincia y año (histórico completo) ---
   const PALETA_ANIOS = ["#8A5A34", "#2F4F3A", "#B9812E", "#5B6F82", "#A6432F", "#6E6350"];
 
-  function pintarGrafico(){
+  function pintarGrafico(datosAnio){
     const cont = document.getElementById("graficoProvincias");
     const leyendaEl = document.getElementById("graficoLeyenda");
-    const todos = anios.flatMap(a => MONITOREO_DATA[a] || []);
+    const tituloEl = document.getElementById("graficoTitulo");
 
-    if(!todos.length){
+    if(tituloEl){
+      tituloEl.textContent = anioActivo === TODOS_KEY
+        ? "Panorama general — planes monitoreados por provincia y año"
+        : `Planes monitoreados por provincia — ${anioActivo}`;
+    }
+
+    if(!datosAnio.length){
       cont.innerHTML = '<div class="grafico-vacio">Todavía no hay datos para graficar.</div>';
       leyendaEl.innerHTML = "";
       return;
     }
 
     const porProvincia = {};
-    todos.forEach(r=>{
+    datosAnio.forEach(r=>{
       const p = normProvincia(r["Provincia"]) || "Sin provincia";
       const a = String(r["Año"] ?? "").trim() || "Sin año";
       if(!porProvincia[p]) porProvincia[p] = {};
@@ -759,7 +800,9 @@
 
     const totalDe = p => Object.values(porProvincia[p]).reduce((s,v)=>s+v, 0);
     const provincias = Object.keys(porProvincia).sort((a,b)=> totalDe(b) - totalDe(a));
-    const aniosOrdenados = anios.slice();
+    // Sólo los años presentes en los datos que se están mostrando (uno solo si hay una
+    // pestaña de año activa, o todos si estamos en "Todos los planes").
+    const aniosOrdenados = anios.filter(a => datosAnio.some(r => String(r["Año"] ?? "").trim() === a));
     const colorAnio = {};
     aniosOrdenados.forEach((a,i)=> colorAnio[a] = PALETA_ANIOS[i % PALETA_ANIOS.length]);
 
@@ -817,8 +860,8 @@
     pintarTabsAnios();
     pintarEncabezado();
     poblarFiltros();
-    pintarGrafico();
     const datosAnio = datosDelAnio();
+    pintarGrafico(datosAnio);
     pintarResumen(datosAnio);
     const filtrados = aplicarFiltros(datosAnio);
     const etiquetaPeriodo = anioActivo === TODOS_KEY ? "en total" : `de ${anioActivo}`;
